@@ -4,6 +4,11 @@
  * jQuery custom events do not reach isolated-world addEventListener handlers.
  */
 (function () {
+  if (globalThis.__trPlusPageBridgeLoaded) {
+    return;
+  }
+  globalThis.__trPlusPageBridgeLoaded = true;
+
   const SOURCE = "task-recorder-screenshot-bridge";
 
   function requestCapture() {

@@ -1,10 +1,10 @@
 {
-  "name": "D365F&O Task Recorder Screenshot Extension",
-  "short_name": "D365F&O Task Recorder Screenshots",
-  "version": "2.2.2",
+  "name": "D365FO TR Plus Screenshots",
+  "short_name": "D365FO TR Plus Screenshots",
+  "version": "2.2.5",
   "description": "Captures tab screenshots for Dynamics 365 Finance and Operations Task Recorder (Chrome and Edge).",
   "manifest_version": 3,
-  "incognito": "spanning",
+  "incognito": "split",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -13,7 +13,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "D365F&O Task Recorder Screenshot Extension",
+    "default_title": "D365FO TR Plus Screenshots",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -45,7 +45,7 @@
       "all_frames": true
     }
   ],
-  "permissions": ["tabs"],
+  "permissions": ["tabs", "scripting"],
   "host_permissions": [
     "<all_urls>",
     "https://*.dynamics.com/*",
