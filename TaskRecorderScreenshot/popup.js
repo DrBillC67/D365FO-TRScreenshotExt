@@ -7,6 +7,20 @@ function setStatus(kind, message) {
   statusEl.textContent = message;
 }
 
+// F&O URLs carry long encoded page state in the query string; it adds noise
+// and can contain record identifiers, so show only the origin and path.
+function displayUrl(urlString) {
+  if (!urlString) {
+    return "(no url)";
+  }
+  try {
+    const url = new URL(urlString);
+    return url.origin + url.pathname;
+  } catch {
+    return urlString;
+  }
+}
+
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs[0];
@@ -80,7 +94,7 @@ document.getElementById("diagnose").addEventListener("click", async () => {
   if (!isAllowedDynamicsUrl(tab.url)) {
     setStatus(
       "bad",
-      `Active tab is not a Finance and operations host (${mode}):\n${tab.url || "(no url)"}\n\n` +
+      `Active tab is not a Finance and operations host (${mode}):\n${displayUrl(tab.url)}\n\n` +
         "Open your F&O app tab (for example *.operations.dynamics.com), then Diagnose again.\n" +
         "Login pages like microsoftonline.com will fail this check."
     );
@@ -94,14 +108,14 @@ document.getElementById("diagnose").addEventListener("click", async () => {
     setStatus(
       "ok",
       `Content script is running (${mode}).\nExtension version: ${EXTENSION_VERSION}\n` +
-        `URL: ${response.href}\nMarker present: ${response.markerPresent}\n\n` +
+        `URL: ${displayUrl(response.href)}\nMarker present: ${response.markerPresent}\n\n` +
         "Next: confirm site access is On all sites, then Test capture now."
     );
   } catch (error) {
     setStatus(
       "bad",
       `Content script is NOT running (${mode}).\n${error.message}\n\n` +
-        `URL: ${tab.url}\nExtension version: ${EXTENSION_VERSION}\n\n` +
+        `URL: ${displayUrl(tab.url)}\nExtension version: ${EXTENSION_VERSION}\n\n` +
         "Fix checklist:\n" +
         "1) Extensions page → this extension enabled, Allow in Incognito ON\n" +
         "2) Fully quit the browser, open a NEW Incognito/InPrivate window\n" +

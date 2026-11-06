@@ -9,7 +9,7 @@ if (!globalThis.__trPlusScreenshotScriptLoaded) {
   globalThis.__trPlusScreenshotScriptLoaded = true;
 
   const MARKER_ID = "screenshotExtensionIsInstalled";
-  const BRIDGE_SOURCE = "task-recorder-screenshot-bridge";
+  const REQUEST_EVENT = "trplus:screenshot-request";
   // Task Recorder expects one image per request, in order, so requests are
   // queued rather than dropped. The cap bounds a runaway page.
   const MAX_PENDING_CAPTURES = 10;
@@ -135,17 +135,7 @@ if (!globalThis.__trPlusScreenshotScriptLoaded) {
     drainCaptureQueue();
   }
 
-  window.addEventListener("message", (event) => {
-    if (event.source !== window || !event.data) {
-      return;
-    }
-    if (
-      event.data.source === BRIDGE_SOURCE &&
-      event.data.direction === "request"
-    ) {
-      requestCapture();
-    }
-  });
+  document.addEventListener(REQUEST_EVENT, requestCapture);
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (sender.id !== chrome.runtime.id) {

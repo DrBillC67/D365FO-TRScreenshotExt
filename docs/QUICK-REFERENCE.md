@@ -12,7 +12,7 @@ One-page cheat sheet for recording Task Recorder business processes with screens
 | 4 | Extension toolbar menu or details | Site access → **On all sites** (required) |
 | 5 | F&O tab | Reload the page |
 
-Confirm the extension shows **version 2.3.0+**.
+Confirm the extension shows **version 2.3.1+**.
 
 ## Record with screenshots
 

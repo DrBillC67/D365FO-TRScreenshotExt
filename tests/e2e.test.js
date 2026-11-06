@@ -37,8 +37,11 @@ function fixturePage(iframeSrc) {
   iframe { position: fixed; left: 200px; top: 10px; width: 50px; height: 50px; border: 0; }
 </style>
 <script>
+  // Like Task Recorder, treat every window message as a screenshot reply.
   window.__shots = [];
+  window.__messages = [];
   window.addEventListener("message", (e) => {
+    window.__messages.push(e.data);
     if (typeof e.data === "string" && e.data.startsWith("data:image/png")) {
       window.__shots.push(e.data);
     }
@@ -88,8 +91,8 @@ async function openPage(pageUrl) {
   return page;
 }
 
-async function openFnoPage() {
-  const page = await openPage(url(FNO_HOST));
+async function openFnoPage(pathname = "/") {
+  const page = await openPage(url(FNO_HOST, pathname));
   await page.waitForSelector(MARKER, { timeout: 10000 });
   await page.waitForFunction(() => window.jQuery.__trScreenshotHooked === true, {
     timeout: 5000,
@@ -100,6 +103,7 @@ async function openFnoPage() {
 async function collectShots(page, action, expected, settleMs = 1500) {
   await page.evaluate(() => {
     window.__shots = [];
+    window.__messages = [];
   });
   const started = Date.now();
   await page.evaluate(action);
@@ -108,7 +112,18 @@ async function collectShots(page, action, expected, settleMs = 1500) {
   }
   const elapsed = Date.now() - started;
   await sleep(settleMs);
-  return { shots: await page.evaluate(() => window.__shots), elapsed };
+  const { shots, messages } = await page.evaluate(() => ({
+    shots: window.__shots,
+    messages: window.__messages.map((m) =>
+      typeof m === "string" ? m.slice(0, 22) : JSON.stringify(m)
+    ),
+  }));
+  assert.equal(
+    messages.length,
+    shots.length,
+    `only PNG replies may be posted to the page (saw ${JSON.stringify(messages)})`
+  );
+  return { shots, elapsed };
 }
 
 function analyzeShot(page, dataUrl) {
@@ -308,7 +323,8 @@ test("non-F&O Dynamics host gets no content script and no captures", async () =>
 });
 
 test("toolbar popup diagnoses and test-captures the F&O tab", async () => {
-  const page = await openFnoPage();
+  const longState = "BgAAACg3Ow7hJAoJO3O3iUGXgQLZJOJj3samHYIjLBv%2BRxvaucx7kdRvMm".repeat(6);
+  const page = await openFnoPage(`/?cmp=USMF&mi=VendGroup&q=${longState}`);
   await page.bringToFront();
   const extension = (await browser.extensions()).get(extensionId);
   await page.triggerExtensionAction(extension);
@@ -324,7 +340,18 @@ test("toolbar popup diagnoses and test-captures the F&O tab", async () => {
   );
   const status = await popup.$eval("#status", (el) => ({ kind: el.className, text: el.textContent }));
   assert.equal(status.kind, "ok", status.text);
-  assert.match(status.text, /Extension version: 2\.3\.0/);
+  const { version } = JSON.parse(fs.readFileSync(path.join(EXTENSION_DIR, "manifest.json"), "utf8"));
+  assert.ok(status.text.includes(`Extension version: ${version}`), status.text);
+  assert.ok(status.text.includes(`URL: ${url(FNO_HOST)}\n`), "shows origin and path only");
+  assert.ok(!status.text.includes(longState), "query string is not shown");
+  assert.deepEqual(
+    await popup.evaluate(() => ({
+      pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      statusOverflow: document.getElementById("status").scrollWidth > document.getElementById("status").clientWidth,
+    })),
+    { pageOverflow: false, statusOverflow: false },
+    "popup content wraps without horizontal scrolling"
+  );
 
   await popup.click("#testCapture");
   await popup.waitForSelector("#preview img", { timeout: 10000 });

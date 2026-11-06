@@ -17,7 +17,7 @@ There is no capture button for screenshots. Task Recorder drives capture when **
 | `TaskRecorderScreenshot/page-bridge.js` | Page-world listener for Task Recorder `screenshot` events |
 | `TaskRecorderScreenshot/screenshot.js` | Content script: install marker, capture queue, crop, and deliver PNG to the page |
 | `TaskRecorderScreenshot/popup.html`, `popup.js` | Toolbar popup for diagnosing and testing capture |
-| `docs/` | [Quick reference](docs/QUICK-REFERENCE.md) and [FAQ](docs/FAQ.md) |
+| `docs/` | [Quick reference](docs/QUICK-REFERENCE.md), [FAQ](docs/FAQ.md), and [comparison with Microsoft’s original](docs/COMPARISON.md) |
 | `tests/` | Unit tests and browser end-to-end tests (see [Testing](#testing)) |
 
 ## Supported hosts
@@ -42,7 +42,7 @@ Other Dynamics hosts, such as Dataverse / customer engagement (`*.crm.dynamics.c
 2. Go to `chrome://extensions` or `edge://extensions`.
 3. Turn on **Developer mode**.
 4. Choose **Load unpacked** and select the `TaskRecorderScreenshot` folder in this repository (not the repository root).
-5. Confirm the extension is enabled (**version 2.3.0+**, named **D365FO TR Plus Screenshots**). Look for the blue camera-style icon.
+5. Confirm the extension is enabled (**version 2.3.1+**, named **D365FO TR Plus Screenshots**). Look for the blue camera-style icon.
 6. Turn on **Allow in Incognito** / **Allow in InPrivate**. After changing this (or after switching to a new extension version), fully quit the browser and open a **new** Incognito/InPrivate window — do not reuse an old private window.
 7. Set site access to **On all sites** (Edge may show this as **Allowed on all sites**).  
    This is **required**. Chromium’s tab screenshot API does not work when access is limited to “specific sites,” even if those sites are Dynamics hosts. Microsoft’s original extension needed the same broad capture permission (`<all_urls>`).
@@ -76,7 +76,7 @@ Prefer **Load unpacked** from the `TaskRecorderScreenshot` folder. Do not commit
 
 ## How capture works
 
-1. Task Recorder fires a `screenshot` event (native DOM or jQuery). `page-bridge.js` turns each event into exactly one capture request, even when the event reaches both the native and jQuery listeners.
+1. Task Recorder fires a `screenshot` event (native DOM or jQuery). `page-bridge.js` turns each event into exactly one capture request, even when the event reaches both the native and jQuery listeners. The request is passed to `screenshot.js` as a private DOM event, never through `window.postMessage`, because Task Recorder treats every window message as a screenshot reply.
 2. `screenshot.js` queues requests in order (up to 10 pending) so none are dropped when steps fire quickly.
 3. The service worker checks that the request came from this extension on an F&O frame in an F&O tab, waits so captures stay under Chromium’s limit of 2 per second, confirms the tab is still the active tab, and calls `captureVisibleTab`.
 4. `screenshot.js` crops off the Task Recorder pane (`#asidePane`) at 1:1 scale and posts the PNG data URL back to the page. If the pane is missing or hidden, the full viewport image is returned.
@@ -93,7 +93,7 @@ Prefer **Load unpacked** from the `TaskRecorderScreenshot` folder. Do not commit
 
 ## Troubleshooting
 
-- **Chrome Incognito: “Receiving end does not exist” / content script not running** — The page loaded without the content script. Reload the extension to **2.3.0+**, keep **Allow in Incognito** on, quit Chrome, open a **new** Incognito window, set **On all sites**, open Dynamics, and click **Diagnose** (it will try to inject). Or reload the Dynamics tab.
+- **Chrome Incognito: “Receiving end does not exist” / content script not running** — The page loaded without the content script. Reload the extension to **2.3.1+**, keep **Allow in Incognito** on, quit Chrome, open a **new** Incognito window, set **On all sites**, open Dynamics, and click **Diagnose** (it will try to inject). Or reload the Dynamics tab.
 - **Chrome Incognito captures fail, normal Chrome works** — Same checklist as above; old Incognito windows can keep a stale extension state.
 - **Diagnose says the active tab is not a Finance and operations host** — You are on a sign-in page (for example `login.microsoftonline.com`), another site, or an F&O host not in [Supported hosts](#supported-hosts). Switch to the F&O tab, or add your host.
 - **Only works with Allowed on all sites** — Expected. Keep that setting on.

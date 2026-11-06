@@ -18,6 +18,8 @@ Microsoft’s [FMLab](https://github.com/microsoft/FMLab) extension (now archive
 - Queues rapid requests instead of dropping them, and supports Task Recorder events sent through jQuery.
 - Works in Incognito/InPrivate and includes a diagnostic popup.
 
+For a detailed, side-by-side breakdown, see the [comparison with Microsoft’s original](COMPARISON.md).
+
 ### Which browsers are supported?
 
 Google Chrome and Microsoft Edge (Chromium), version 116 or later, on Windows and Mac. Firefox and Safari are not supported.
@@ -74,7 +76,7 @@ Even with this access, the extension only runs its scripts on the F&O hosts list
 
 ### The “Capture screenshots” toggle doesn’t appear. What do I check?
 
-1. The extension is enabled and shows version 2.3.0+.
+1. The extension is enabled and shows version 2.3.1+.
 2. Your F&O URL matches a [supported host](#which-environment-urls-are-supported).
 3. Reload the F&O tab after installing or updating the extension.
 4. Click the extension icon → **Diagnose this tab**. It should report “Marker present: true”.

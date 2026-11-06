@@ -2,6 +2,10 @@
  * Runs in the page's MAIN world (not the extension isolated world).
  * Task Recorder may fire "screenshot" via native DOM events and/or jQuery;
  * jQuery custom events do not reach isolated-world addEventListener handlers.
+ *
+ * Requests are forwarded to screenshot.js with a private DOM event, never
+ * window.postMessage: Task Recorder treats window messages as screenshot
+ * replies, so only the PNG data URL may be posted there.
  */
 (function () {
   if (globalThis.__trPlusPageBridgeLoaded) {
@@ -9,7 +13,7 @@
   }
   globalThis.__trPlusPageBridgeLoaded = true;
 
-  const SOURCE = "task-recorder-screenshot-bridge";
+  const REQUEST_EVENT = "trplus:screenshot-request";
   let lastEvent = null;
 
   function requestCapture(event) {
@@ -21,14 +25,7 @@
     }
     lastEvent = nativeEvent;
 
-    window.postMessage(
-      {
-        source: SOURCE,
-        direction: "request",
-        requestId: String(Date.now()) + Math.random().toString(16).slice(2),
-      },
-      window.location.origin
-    );
+    document.dispatchEvent(new CustomEvent(REQUEST_EVENT));
   }
 
   document.addEventListener("screenshot", requestCapture, true);

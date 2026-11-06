@@ -1,7 +1,7 @@
 {
   "name": "D365FO TR Plus Screenshots",
   "short_name": "D365FO TR Plus Screenshots",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Captures tab screenshots for Dynamics 365 Finance and Operations Task Recorder (Chrome and Edge).",
   "manifest_version": 3,
   "incognito": "split",
