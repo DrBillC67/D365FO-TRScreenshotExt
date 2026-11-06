@@ -1,7 +1,7 @@
 {
   "name": "D365FO TR Plus Screenshots",
   "short_name": "D365FO TR Plus Screenshots",
-  "version": "2.2.5",
+  "version": "2.3.0",
   "description": "Captures tab screenshots for Dynamics 365 Finance and Operations Task Recorder (Chrome and Edge).",
   "manifest_version": 3,
   "incognito": "split",
@@ -27,8 +27,16 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.dynamics.com/*",
-        "https://*.microsoftdynamics.us/*"
+        "https://*.operations.dynamics.com/*",
+        "https://*.operations.eu.dynamics.com/*",
+        "https://*.operations.fr.dynamics.com/*",
+        "https://*.operations.no.dynamics.com/*",
+        "https://*.operations.sa.dynamics.com/*",
+        "https://*.operations.ch.dynamics.com/*",
+        "https://*.operations.uae.dynamics.com/*",
+        "https://*.cloudax.dynamics.com/*",
+        "https://*.operations.gov.microsoftdynamics.us/*",
+        "https://*.operations.high.microsoftdynamics.us/*"
       ],
       "js": ["page-bridge.js"],
       "run_at": "document_start",
@@ -37,8 +45,16 @@
     },
     {
       "matches": [
-        "https://*.dynamics.com/*",
-        "https://*.microsoftdynamics.us/*"
+        "https://*.operations.dynamics.com/*",
+        "https://*.operations.eu.dynamics.com/*",
+        "https://*.operations.fr.dynamics.com/*",
+        "https://*.operations.no.dynamics.com/*",
+        "https://*.operations.sa.dynamics.com/*",
+        "https://*.operations.ch.dynamics.com/*",
+        "https://*.operations.uae.dynamics.com/*",
+        "https://*.cloudax.dynamics.com/*",
+        "https://*.operations.gov.microsoftdynamics.us/*",
+        "https://*.operations.high.microsoftdynamics.us/*"
       ],
       "js": ["screenshot.js"],
       "run_at": "document_end",
@@ -46,9 +62,5 @@
     }
   ],
   "permissions": ["tabs", "scripting"],
-  "host_permissions": [
-    "<all_urls>",
-    "https://*.dynamics.com/*",
-    "https://*.microsoftdynamics.us/*"
-  ]
+  "host_permissions": ["<all_urls>"]
 }

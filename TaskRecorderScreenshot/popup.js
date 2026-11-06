@@ -1,5 +1,6 @@
 const statusEl = document.getElementById("status");
 const previewEl = document.getElementById("preview");
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 function setStatus(kind, message) {
   statusEl.className = kind;
@@ -9,23 +10,6 @@ function setStatus(kind, message) {
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs[0];
-}
-
-function isDynamicsUrl(url) {
-  if (!url) {
-    return false;
-  }
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return (
-      host === "dynamics.com" ||
-      host.endsWith(".dynamics.com") ||
-      host === "microsoftdynamics.us" ||
-      host.endsWith(".microsoftdynamics.us")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function capturePermissionHelp(message) {
@@ -62,34 +46,25 @@ function showCapturePreview(dataUrl) {
   );
 }
 
-function runCapture(tab, onCaptured) {
-  if (tab.incognito || !chrome.tabs.captureTab) {
-    chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, onCaptured);
-    return;
-  }
-
-  chrome.tabs.captureTab(tab.id, { format: "png" }, (dataUrl) => {
-    if (chrome.runtime.lastError || !dataUrl) {
-      chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, onCaptured);
-      return;
-    }
-    onCaptured(dataUrl);
-  });
-}
-
-async function ensureInjected(tab) {
-  const result = await chrome.runtime.sendMessage({
-    name: "ensureInjected",
-    tabId: tab.id,
-  });
+async function sendToBackground(message) {
+  const result = await chrome.runtime.sendMessage(message);
   if (!result || result.error) {
-    throw new Error((result && result.error) || "Injection failed");
+    throw new Error((result && result.error) || `${message.name} failed`);
   }
   return result;
 }
 
 async function pingTab(tab) {
-  return chrome.tabs.sendMessage(tab.id, { name: "ping" });
+  return chrome.tabs.sendMessage(tab.id, { name: "ping" }, { frameId: 0 });
+}
+
+async function ensureContentScript(tab) {
+  try {
+    return await pingTab(tab);
+  } catch {
+    await sendToBackground({ name: "ensureInjected", tabId: tab.id });
+    return pingTab(tab);
+  }
 }
 
 document.getElementById("diagnose").addEventListener("click", async () => {
@@ -102,10 +77,12 @@ document.getElementById("diagnose").addEventListener("click", async () => {
 
   const mode = tab.incognito ? "Incognito/InPrivate" : "normal";
 
-  if (!isDynamicsUrl(tab.url)) {
+  if (!isAllowedDynamicsUrl(tab.url)) {
     setStatus(
       "bad",
-      `Active tab is not a Dynamics host (${mode}):\n${tab.url || "(no url)"}\n\nOpen your F&O app tab (*.dynamics.com), then Diagnose again.\nLogin pages like microsoftonline.com will fail this check.`
+      `Active tab is not a Finance and operations host (${mode}):\n${tab.url || "(no url)"}\n\n` +
+        "Open your F&O app tab (for example *.operations.dynamics.com), then Diagnose again.\n" +
+        "Login pages like microsoftonline.com will fail this check."
     );
     return;
   }
@@ -113,26 +90,21 @@ document.getElementById("diagnose").addEventListener("click", async () => {
   setStatus("info", `Checking content script on Dynamics tab (${mode})…`);
 
   try {
-    let response;
-    try {
-      response = await pingTab(tab);
-    } catch {
-      await ensureInjected(tab);
-      response = await pingTab(tab);
-    }
-
+    const response = await ensureContentScript(tab);
     setStatus(
       "ok",
-      `Content script is running (${mode}).\nURL: ${response.href}\nMarker present: ${response.markerPresent}\n\nNext: confirm site access is On all sites, then Test capture now.`
+      `Content script is running (${mode}).\nExtension version: ${EXTENSION_VERSION}\n` +
+        `URL: ${response.href}\nMarker present: ${response.markerPresent}\n\n` +
+        "Next: confirm site access is On all sites, then Test capture now."
     );
   } catch (error) {
     setStatus(
       "bad",
       `Content script is NOT running (${mode}).\n${error.message}\n\n` +
-        `URL: ${tab.url}\n\n` +
+        `URL: ${tab.url}\nExtension version: ${EXTENSION_VERSION}\n\n` +
         "Fix checklist:\n" +
-        "1) chrome://extensions → version 2.2.5+, Allow in Incognito ON\n" +
-        "2) Fully quit Chrome, open a NEW Incognito window\n" +
+        "1) Extensions page → this extension enabled, Allow in Incognito ON\n" +
+        "2) Fully quit the browser, open a NEW Incognito/InPrivate window\n" +
         "3) Site access → On all sites (check again inside Incognito)\n" +
         "4) Reload this Dynamics tab, then Diagnose again"
     );
@@ -146,19 +118,15 @@ document.getElementById("testCapture").addEventListener("click", async () => {
     setStatus("bad", "No active tab.");
     return;
   }
-  if (!isDynamicsUrl(tab.url)) {
-    setStatus("bad", "Switch to a Dynamics tab first.");
+  if (!isAllowedDynamicsUrl(tab.url)) {
+    setStatus("bad", "Switch to a Finance and operations tab first.");
     return;
   }
 
   setStatus("info", "Ensuring content script, then capturing…");
 
   try {
-    try {
-      await pingTab(tab);
-    } catch {
-      await ensureInjected(tab);
-    }
+    await ensureContentScript(tab);
   } catch (error) {
     setStatus(
       "bad",
@@ -167,20 +135,13 @@ document.getElementById("testCapture").addEventListener("click", async () => {
     return;
   }
 
-  const onCaptured = (dataUrl) => {
-    if (chrome.runtime.lastError) {
-      setStatus(
-        "bad",
-        capturePermissionHelp(chrome.runtime.lastError.message)
-      );
-      return;
-    }
-    if (!dataUrl) {
-      setStatus("bad", "Capture returned no image.");
-      return;
-    }
-    showCapturePreview(dataUrl);
-  };
-
-  runCapture(tab, onCaptured);
+  try {
+    const { screenshotUrl } = await sendToBackground({
+      name: "testCapture",
+      tabId: tab.id,
+    });
+    showCapturePreview(screenshotUrl);
+  } catch (error) {
+    setStatus("bad", capturePermissionHelp(error.message));
+  }
 });

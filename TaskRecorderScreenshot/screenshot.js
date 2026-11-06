@@ -10,11 +10,13 @@ if (!globalThis.__trPlusScreenshotScriptLoaded) {
 
   const MARKER_ID = "screenshotExtensionIsInstalled";
   const BRIDGE_SOURCE = "task-recorder-screenshot-bridge";
-  const CAPTURE_DEBOUNCE_MS = 400;
+  // Task Recorder expects one image per request, in order, so requests are
+  // queued rather than dropped. The cap bounds a runaway page.
+  const MAX_PENDING_CAPTURES = 10;
   const DEBUG = false;
 
-  let lastCaptureStartedAt = 0;
-  let captureInFlight = false;
+  let pendingCaptures = 0;
+  let draining = false;
 
   function log(...args) {
     if (DEBUG) {
@@ -41,46 +43,52 @@ if (!globalThis.__trPlusScreenshotScriptLoaded) {
     document.body.appendChild(marker);
   }
 
-  function cropTaskRecorderPane(dataUrl) {
-    return new Promise((resolve) => {
+  function loadImage(dataUrl) {
+    return new Promise((resolve, reject) => {
       const image = new Image();
-      image.onload = () => {
-        try {
-          const ratio = window.devicePixelRatio || 1;
-          const canvas = document.createElement("canvas");
-          const context = canvas.getContext("2d");
-          if (!context) {
-            resolve(dataUrl);
-            return;
-          }
-
-          canvas.width = window.innerWidth * ratio;
-          canvas.height = window.innerHeight * ratio;
-
-          const asidePane = document.getElementById("asidePane");
-          const paneWidth = asidePane ? asidePane.clientWidth * ratio : 0;
-          const sourceWidth = Math.max(canvas.width - paneWidth, 1);
-
-          context.drawImage(
-            image,
-            0,
-            0,
-            sourceWidth,
-            canvas.height,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-          );
-          resolve(canvas.toDataURL("image/png"));
-        } catch (error) {
-          logError("crop failed, using full image", error);
-          resolve(dataUrl);
-        }
-      };
-      image.onerror = () => resolve(dataUrl);
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Could not decode screenshot"));
       image.src = dataUrl;
     });
+  }
+
+  // Width in image pixels of the area left of the Task Recorder pane, or the
+  // full image width when the pane is absent, hidden, or not docked right.
+  function contentWidthInImage(imageWidth) {
+    const asidePane = document.getElementById("asidePane");
+    if (!asidePane) {
+      return imageWidth;
+    }
+    const rect = asidePane.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    if (rect.width <= 0 || rect.left <= 0 || rect.right < viewportWidth - 1) {
+      return imageWidth;
+    }
+    const scale = imageWidth / window.innerWidth;
+    return Math.min(Math.max(Math.round(rect.left * scale), 1), imageWidth);
+  }
+
+  async function cropTaskRecorderPane(dataUrl) {
+    try {
+      const image = await loadImage(dataUrl);
+      const width = contentWidthInImage(image.naturalWidth);
+      if (width === image.naturalWidth) {
+        return dataUrl;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return dataUrl;
+      }
+      context.drawImage(image, 0, 0);
+      return canvas.toDataURL("image/png");
+    } catch (error) {
+      logError("crop failed, using full image", error);
+      return dataUrl;
+    }
   }
 
   function deliverScreenshot(dataUrl) {
@@ -88,37 +96,43 @@ if (!globalThis.__trPlusScreenshotScriptLoaded) {
     log("delivered screenshot to page");
   }
 
-  function captureAndDeliver() {
-    const now = Date.now();
-    if (captureInFlight || now - lastCaptureStartedAt < CAPTURE_DEBOUNCE_MS) {
-      log("capture skipped (debounce/in-flight)");
+  async function captureAndDeliver() {
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({ name: "screenshot" });
+    } catch (error) {
+      logError(error.message || error);
       return;
     }
+    if (!response || response.error || !response.screenshotUrl) {
+      logError((response && response.error) || "No screenshot returned");
+      return;
+    }
+    deliverScreenshot(await cropTaskRecorderPane(response.screenshotUrl));
+  }
 
-    lastCaptureStartedAt = now;
-    captureInFlight = true;
-
-    chrome.runtime.sendMessage({ name: "screenshot" }, (response) => {
-      const finish = () => {
-        captureInFlight = false;
-      };
-
-      if (chrome.runtime.lastError) {
-        logError(chrome.runtime.lastError.message);
-        finish();
-        return;
+  async function drainCaptureQueue() {
+    if (draining) {
+      return;
+    }
+    draining = true;
+    try {
+      while (pendingCaptures > 0) {
+        await captureAndDeliver();
+        pendingCaptures -= 1;
       }
-      if (!response || response.error || !response.screenshotUrl) {
-        logError((response && response.error) || "No screenshot returned");
-        finish();
-        return;
-      }
+    } finally {
+      draining = false;
+    }
+  }
 
-      cropTaskRecorderPane(response.screenshotUrl)
-        .then(deliverScreenshot)
-        .catch((error) => logError(error))
-        .finally(finish);
-    });
+  function requestCapture() {
+    if (pendingCaptures >= MAX_PENDING_CAPTURES) {
+      logError("capture queue full, request ignored");
+      return;
+    }
+    pendingCaptures += 1;
+    drainCaptureQueue();
   }
 
   window.addEventListener("message", (event) => {
@@ -129,12 +143,12 @@ if (!globalThis.__trPlusScreenshotScriptLoaded) {
       event.data.source === BRIDGE_SOURCE &&
       event.data.direction === "request"
     ) {
-      captureAndDeliver();
+      requestCapture();
     }
   });
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (sender.id && sender.id !== chrome.runtime.id) {
+    if (sender.id !== chrome.runtime.id) {
       return false;
     }
     if (request && request.name === "ping") {
@@ -144,7 +158,6 @@ if (!globalThis.__trPlusScreenshotScriptLoaded) {
         href: location.href,
         markerPresent: !!document.getElementById(MARKER_ID),
       });
-      return false;
     }
     return false;
   });

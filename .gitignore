@@ -1,1 +1,5 @@
 TaskRecorderScreenshot.zip
+*.pem
+*.crx
+.DS_Store
+node_modules/

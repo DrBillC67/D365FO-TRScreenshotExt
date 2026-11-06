@@ -10,8 +10,17 @@
   globalThis.__trPlusPageBridgeLoaded = true;
 
   const SOURCE = "task-recorder-screenshot-bridge";
+  let lastEvent = null;
 
-  function requestCapture() {
+  function requestCapture(event) {
+    // A native dispatch reaches both the native listener and jQuery's handler
+    // (as event.originalEvent); request only one capture per event.
+    const nativeEvent = (event && event.originalEvent) || event;
+    if (nativeEvent && nativeEvent === lastEvent) {
+      return;
+    }
+    lastEvent = nativeEvent;
+
     window.postMessage(
       {
         source: SOURCE,

@@ -1,170 +1,171 @@
 /**
- * Service worker: captures the requesting Dynamics tab for Task Recorder.
+ * Service worker: captures the requesting Finance and operations tab for
+ * Task Recorder.
  *
- * Prefer chrome.tabs.captureTab in normal windows (Chrome). Edge does not
- * expose captureTab. For Incognito/InPrivate tabs, always use
- * captureVisibleTab (Chrome's captureTab is unreliable there), and only when
- * the sender tab is still active in that window.
+ * Chromium only offers captureVisibleTab, so the requesting tab must be the
+ * active tab in its window. Captures are serialized and spaced to stay under
+ * MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND.
  *
- * Also reinjects content scripts on Dynamics navigations — Chrome Incognito
- * often misses automatic injection after Allow-in-Incognito / extension reload.
+ * Also reinjects content scripts into the top frame of F&O tabs that are
+ * missing them — Chrome Incognito often skips automatic injection after
+ * Allow-in-Incognito / extension reload.
  */
 
-const ALLOWED_HOST_SUFFIXES = [".dynamics.com", ".microsoftdynamics.us"];
+importScripts("hosts.js");
 
-function isAllowedSenderUrl(urlString) {
-  if (!urlString) {
-    return false;
+const POPUP_URL = chrome.runtime.getURL("popup.html");
+const MIN_CAPTURE_INTERVAL_MS =
+  Math.ceil(1000 / (chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND || 2)) +
+  50;
+
+let captureQueue = Promise.resolve();
+let lastCaptureAt = 0;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function captureActiveTab(tab) {
+  const wait = lastCaptureAt + MIN_CAPTURE_INTERVAL_MS - Date.now();
+  if (wait > 0) {
+    await delay(wait);
   }
 
-  let url;
+  const [active] = await chrome.tabs.query({
+    active: true,
+    windowId: tab.windowId,
+  });
+  if (!active || active.id !== tab.id) {
+    throw new Error(
+      "Capture skipped: Dynamics tab is not the active tab in this window"
+    );
+  }
+
+  lastCaptureAt = Date.now();
+  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+    format: "png",
+  });
+  if (!dataUrl) {
+    throw new Error("Screenshot capture failed");
+  }
+  return dataUrl;
+}
+
+function enqueueCapture(tab) {
+  const run = captureQueue.then(() => captureActiveTab(tab));
+  captureQueue = run.catch(() => {});
+  return run;
+}
+
+async function hasContentScript(tabId) {
   try {
-    url = new URL(urlString);
+    const response = await chrome.tabs.sendMessage(
+      tabId,
+      { name: "ping" },
+      { frameId: 0 }
+    );
+    return !!(response && response.ok);
   } catch {
     return false;
   }
-
-  if (url.protocol !== "https:") {
-    return false;
-  }
-
-  const hostname = url.hostname.toLowerCase();
-  return ALLOWED_HOST_SUFFIXES.some(
-    (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix)
-  );
 }
 
 async function ensureScriptsInjected(tabId) {
+  if (await hasContentScript(tabId)) {
+    return false;
+  }
   await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
+    target: { tabId },
     files: ["page-bridge.js"],
     world: "MAIN",
   });
   await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
+    target: { tabId },
     files: ["screenshot.js"],
     world: "ISOLATED",
   });
+  return true;
 }
 
-function captureVisibleSenderTab(tab, sendResponse) {
-  chrome.tabs.query(
-    { active: true, windowId: tab.windowId },
-    (activeTabs) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ error: chrome.runtime.lastError.message });
-        return;
-      }
-
-      const active = activeTabs && activeTabs[0];
-      if (!active || active.id !== tab.id) {
-        sendResponse({
-          error:
-            "Capture skipped: Dynamics tab is not the active tab in this window",
-        });
-        return;
-      }
-
-      chrome.tabs.captureVisibleTab(
-        tab.windowId,
-        { format: "png" },
-        (dataUrl) => {
-          if (chrome.runtime.lastError) {
-            sendResponse({ error: chrome.runtime.lastError.message });
-            return;
-          }
-          if (!dataUrl) {
-            sendResponse({ error: "Screenshot capture failed" });
-            return;
-          }
-          sendResponse({ screenshotUrl: dataUrl });
-        }
-      );
-    }
-  );
-}
-
-function captureSenderTab(tab, sendResponse) {
-  // Incognito: skip captureTab — it often fails or no-ops in Chrome private windows.
-  if (tab.incognito || !chrome.tabs.captureTab) {
-    captureVisibleSenderTab(tab, sendResponse);
-    return;
+async function getAllowedTab(tabId) {
+  if (!tabId) {
+    throw new Error("Missing tabId");
   }
+  const tab = await chrome.tabs.get(tabId);
+  if (!isAllowedDynamicsUrl(tab.url)) {
+    throw new Error(`Not a Finance and operations tab:\n${tab.url || "(no url)"}`);
+  }
+  return tab;
+}
 
-  chrome.tabs.captureTab(tab.id, { format: "png" }, (dataUrl) => {
-    if (chrome.runtime.lastError || !dataUrl) {
-      captureVisibleSenderTab(tab, sendResponse);
-      return;
-    }
-    sendResponse({ screenshotUrl: dataUrl });
-  });
+function isFromPopup(sender) {
+  return !sender.tab && sender.url === POPUP_URL;
+}
+
+function respond(promise, sendResponse) {
+  promise.then(sendResponse, (error) =>
+    sendResponse({ error: (error && error.message) || String(error) })
+  );
+  return true;
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete" || !tab?.url) {
-    return;
-  }
-  if (!isAllowedSenderUrl(tab.url)) {
+  if (changeInfo.status !== "complete" || !isAllowedDynamicsUrl(tab?.url)) {
     return;
   }
   ensureScriptsInjected(tabId).catch(() => {
-    // Ignore transient injection errors (tab closed, restricted page, etc.).
+    // Ignore transient injection errors (tab closed, navigation in progress).
   });
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (!request || !request.name) {
+  if (!request || !request.name || sender.id !== chrome.runtime.id) {
     return false;
   }
 
-  if (sender.id !== chrome.runtime.id) {
-    sendResponse({ error: "Unauthorized extension sender" });
-    return false;
-  }
+  switch (request.name) {
+    case "screenshot":
+      if (
+        !sender.tab ||
+        !isAllowedDynamicsUrl(sender.url) ||
+        !isAllowedDynamicsUrl(sender.tab.url)
+      ) {
+        sendResponse({ error: "Unauthorized sender" });
+        return false;
+      }
+      return respond(
+        enqueueCapture(sender.tab).then((screenshotUrl) => ({ screenshotUrl })),
+        sendResponse
+      );
 
-  if (request.name === "ensureInjected") {
-    const tabId = request.tabId;
-    if (!tabId) {
-      sendResponse({ error: "Missing tabId" });
+    case "ensureInjected":
+      if (!isFromPopup(sender)) {
+        sendResponse({ error: "Unauthorized sender" });
+        return false;
+      }
+      return respond(
+        getAllowedTab(request.tabId).then(async (tab) => ({
+          ok: true,
+          injected: await ensureScriptsInjected(tab.id),
+          url: tab.url,
+          incognito: !!tab.incognito,
+        })),
+        sendResponse
+      );
+
+    case "testCapture":
+      if (!isFromPopup(sender)) {
+        sendResponse({ error: "Unauthorized sender" });
+        return false;
+      }
+      return respond(
+        getAllowedTab(request.tabId)
+          .then(enqueueCapture)
+          .then((screenshotUrl) => ({ screenshotUrl })),
+        sendResponse
+      );
+
+    default:
       return false;
-    }
-
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError || !tab) {
-        sendResponse({
-          error: chrome.runtime.lastError?.message || "Tab not found",
-        });
-        return;
-      }
-      if (!isAllowedSenderUrl(tab.url)) {
-        sendResponse({
-          error: `Not a Dynamics tab:\n${tab.url || "(no url)"}`,
-        });
-        return;
-      }
-
-      ensureScriptsInjected(tabId)
-        .then(() => sendResponse({ ok: true, url: tab.url, incognito: !!tab.incognito }))
-        .catch((error) =>
-          sendResponse({ error: error.message || String(error) })
-        );
-    });
-    return true;
   }
-
-  if (request.name !== "screenshot") {
-    return false;
-  }
-
-  if (
-    !sender.tab ||
-    !sender.tab.id ||
-    !isAllowedSenderUrl(sender.url || sender.tab.url)
-  ) {
-    sendResponse({ error: "Unauthorized sender" });
-    return false;
-  }
-
-  captureSenderTab(sender.tab, sendResponse);
-  return true;
 });
