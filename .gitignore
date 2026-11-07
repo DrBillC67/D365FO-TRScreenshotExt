@@ -1,4 +1,5 @@
 TaskRecorderScreenshot.zip
+dist/
 *.pem
 *.crx
 .DS_Store

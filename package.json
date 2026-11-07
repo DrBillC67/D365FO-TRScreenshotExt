@@ -1,11 +1,12 @@
 {
   "name": "d365fo-tr-plus-screenshots",
   "private": true,
-  "description": "Tests for the D365FO TR Plus Screenshots browser extension.",
+  "description": "Tests and packaging for the D365FO TR Plus Screenshots browser extension.",
   "scripts": {
-    "test": "node --test tests/hosts.test.js tests/e2e.test.js",
-    "test:unit": "node --test tests/hosts.test.js",
-    "test:e2e": "node --test tests/e2e.test.js"
+    "test": "node --test tests/hosts.test.js tests/package.test.js tests/e2e.test.js",
+    "test:unit": "node --test tests/hosts.test.js tests/package.test.js",
+    "test:e2e": "node --test tests/e2e.test.js",
+    "package": "node scripts/package.js"
   },
   "devDependencies": {
     "puppeteer": "^25.16.0"

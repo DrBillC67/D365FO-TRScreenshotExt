@@ -17,7 +17,8 @@ There is no capture button for screenshots. Task Recorder drives capture when **
 | `TaskRecorderScreenshot/page-bridge.js` | Page-world listener for Task Recorder `screenshot` events |
 | `TaskRecorderScreenshot/screenshot.js` | Content script: install marker, capture queue, crop, and deliver PNG to the page |
 | `TaskRecorderScreenshot/popup.html`, `popup.js` | Toolbar popup for diagnosing and testing capture |
-| `docs/` | [Quick reference](docs/QUICK-REFERENCE.md), [FAQ](docs/FAQ.md), and [comparison with Microsoft’s original](docs/COMPARISON.md) |
+| `docs/` | [Quick reference](docs/QUICK-REFERENCE.md), [FAQ](docs/FAQ.md), [comparison with Microsoft’s original](docs/COMPARISON.md), [store listing draft](docs/STORE-LISTING.md), and [privacy policy](docs/PRIVACY.md) |
+| `scripts/package.js` | Builds the store upload and Load-unpacked zips into `dist/` (see [Packaging](#packaging)) |
 | `tests/` | Unit tests and browser end-to-end tests (see [Testing](#testing)) |
 
 ## Supported hosts
@@ -122,7 +123,22 @@ Requires Node.js 22.12+ and OpenSSL. Puppeteer is a test-only dependency; nothin
 npm install                             # Puppeteer's postinstall is denied in package.json (allowScripts)
 npx puppeteer browsers install chrome   # so download Chrome for Testing explicitly
 npm test                                # unit + end-to-end
-npm run test:unit                       # host allow-list and manifest checks only
+npm run test:unit                       # host allow-list, manifest, and packaging checks only
 ```
 
 The end-to-end tests load the unpacked extension into headless Chrome for Testing and serve fake pages over local HTTPS (hosts are mapped to `127.0.0.1`). They cover cropping without distortion, request de-duplication and queueing, the capture rate limit, top-frame-only reinjection, rejection of non-F&O hosts and of popup-only messages from content scripts, and the toolbar popup.
+
+## Packaging
+
+```bash
+npm run package
+```
+
+This validates the manifest and every file it references, then writes two zips to `dist/` (gitignored):
+
+| File | Use |
+| --- | --- |
+| `d365fo-tr-plus-screenshots-<version>-store.zip` | Upload to the Chrome Web Store or Edge Add-ons. `manifest.json` is at the zip root. |
+| `TaskRecorderScreenshot-<version>.zip` | Share with people who will unzip it and **Load unpacked** the `TaskRecorderScreenshot` folder. Stores reject this layout. |
+
+Bump `version` in `manifest.json` before each store upload. Listing text, permission justifications, and the submission checklist are in [docs/STORE-LISTING.md](docs/STORE-LISTING.md).
